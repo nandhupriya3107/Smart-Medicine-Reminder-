@@ -1,0 +1,27 @@
+{
+  "name": "smart-rem-backend",
+  "version": "1.0.0",
+  "description": "Smart Medicine Reminder System for Elderly People - Backend Server & IoT Hub",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "socket.io": "^4.7.5"
+  },
+  "keywords": [
+    "medicine-reminder",
+    "elderly-care",
+    "iot",
+    "esp32",
+    "healthcare",
+    "arduino"
+  ],
+  "author": "SMART REM Team",
+  "license": "MIT"
+}

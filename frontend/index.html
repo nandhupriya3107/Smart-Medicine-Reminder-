@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SMART REM - Medicine Reminder System for Elderly People</title>
+  
+  <!-- Google Fonts: Inter and Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- Socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="theme-senior">
+
+  <!-- TOP HEADER NAVIGATION -->
+  <header class="app-header">
+    <div class="logo-container">
+      <div class="logo-icon"><i class="fa-solid fa-pills"></i></div>
+      <div class="logo-text">
+        <h1>SMART REM</h1>
+        <span class="tagline">Smart Medicine Reminder & Monitoring System</span>
+      </div>
+    </div>
+
+    <!-- Active Mode Switcher -->
+    <nav class="view-nav">
+      <button id="btnNavSenior" class="nav-tab active" onclick="switchView('senior')">
+        <i class="fa-solid fa-person-cane"></i>
+        <span>Senior View</span>
+      </button>
+      <button id="btnNavBox" class="nav-tab" onclick="switchView('box')">
+        <i class="fa-solid fa-box-archive"></i>
+        <span>Smart Box Simulator</span>
+      </button>
+      <button id="btnNavCaregiver" class="nav-tab" onclick="switchView('caregiver')">
+        <i class="fa-solid fa-heart-pulse"></i>
+        <span>Caregiver Dashboard</span>
+      </button>
+    </nav>
+
+    <div class="header-status">
+      <div class="system-time" id="clockDisplay">00:00:00</div>
+      <div class="status-badge status-online" id="connectionBadge">
+        <span class="dot"></span> Online
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN VIEW CONTAINER -->
+  <main class="main-container">
+
+    <!-- ============================================================== -->
+    <!-- 1. SENIOR CITIZEN VIEW (ACCESSIBLE, LARGE BUTTONS, VOICE & ALARM) -->
+    <!-- ============================================================== -->
+    <section id="viewSenior" class="view-panel active">
+      <div class="senior-container">
+        
+        <!-- Senior Greeting & Voice Assistant Banner -->
+        <div class="senior-greeting-card">
+          <div class="senior-avatar">
+            <i class="fa-solid fa-user-clock"></i>
+          </div>
+          <div class="greeting-info">
+            <h2 id="seniorGreeting">Hello, Grandfather Robert!</h2>
+            <p id="seniorDateDisplay">Today is Monday, September 28</p>
+          </div>
+          <button class="speak-btn" onclick="speakCurrentStatus()" title="Listen to Voice Assistant">
+            <i class="fa-solid fa-volume-high"></i>
+            <span>Read Aloud</span>
+          </button>
+        </div>
+
+        <!-- ACTIVE MEDICATION REMINDER HERO CARD (When Alarm Fires) -->
+        <div id="activeAlarmBanner" class="alarm-hero-card hidden">
+          <div class="alarm-pulse-ring"></div>
+          
+          <div class="alarm-header">
+            <div class="alarm-badge">
+              <i class="fa-solid fa-bell fa-shake"></i> MEDICINE TIME!
+            </div>
+            <div class="compartment-tag" id="alarmCompartmentTag">
+              <i class="fa-solid fa-box-open"></i> Open Box Compartment #1
+            </div>
+          </div>
+
+          <div class="alarm-body">
+            <h1 class="alarm-med-name" id="alarmMedName">Metformin (Diabetes)</h1>
+            <div class="alarm-dosage-info" id="alarmDose">500 mg - 1 Tablet</div>
+            
+            <div class="alarm-instruction-box">
+              <i class="fa-solid fa-circle-info"></i>
+              <span id="alarmInstruction">Take with a glass of warm water after breakfast.</span>
+            </div>
+
+            <!-- Escalation Grace Countdown Timer -->
+            <div class="escalation-timer-box">
+              <div class="timer-label">
+                <i class="fa-solid fa-clock-rotate-left"></i> Family SMS Alert In:
+              </div>
+              <div class="timer-value" id="alarmCountdown">09:59</div>
+              <div class="timer-subtext">If not confirmed, an urgent alert will be sent to your family.</div>
+            </div>
+          </div>
+
+          <!-- GIANT ACTION BUTTONS FOR ELDERLY -->
+          <div class="senior-actions-grid">
+            <button class="senior-btn btn-taken" onclick="confirmMedicationTaken('MOBILE_APP')">
+              <div class="btn-icon"><i class="fa-solid fa-circle-check"></i></div>
+              <div class="btn-content">
+                <span class="btn-main-text">I HAVE TAKEN IT</span>
+                <span class="btn-sub-text">Press when medicine is taken</span>
+              </div>
+            </button>
+
+            <button class="senior-btn btn-snooze" onclick="snoozeAlarm(5)">
+              <div class="btn-icon"><i class="fa-solid fa-clock"></i></div>
+              <div class="btn-content">
+                <span class="btn-main-text">REMIND IN 5 MIN</span>
+                <span class="btn-sub-text">Snooze reminder for 5 minutes</span>
+              </div>
+            </button>
+
+            <button class="senior-btn btn-help" onclick="triggerEmergencySOS('SENIOR_APP')">
+              <div class="btn-icon"><i class="fa-solid fa-hand-holding-medical"></i></div>
+              <div class="btn-content">
+                <span class="btn-main-text">I NEED HELP / SOS</span>
+                <span class="btn-sub-text">Alerts your family immediately</span>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- NO ACTIVE ALARM STATE -->
+        <div id="noAlarmBanner" class="peaceful-card">
+          <div class="peaceful-icon">
+            <i class="fa-solid fa-heart-circle-check"></i>
+          </div>
+          <h3>You are all caught up!</h3>
+          <p id="nextMedNotice">Your next medicine is scheduled at <strong>13:00 (Amlodipine)</strong>.</p>
+          <div class="test-trigger-bar">
+            <span>Want to test the alarm right now?</span>
+            <button class="test-alarm-btn" onclick="triggerImmediateTestAlarm()">
+              <i class="fa-solid fa-play"></i> Trigger Test Alarm
+            </button>
+          </div>
+        </div>
+
+        <!-- TODAY'S SCHEDULE OVERVIEW -->
+        <div class="senior-schedule-section">
+          <div class="section-title">
+            <i class="fa-solid fa-calendar-day"></i>
+            <h3>Today's Medicine Schedule</h3>
+          </div>
+          <div class="schedule-grid" id="seniorScheduleGrid">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!-- 2. SMART MEDICINE BOX HARDWARE SIMULATOR (IoT DIGITAL TWIN)   -->
+    <!-- ============================================================== -->
+    <section id="viewBox" class="view-panel">
+      <div class="box-simulator-container">
+        
+        <div class="simulator-header-card">
+          <div class="sim-title">
+            <h2><i class="fa-solid fa-microchip"></i> Smart Medicine Box IoT Digital Twin</h2>
+            <p>Interactive hardware simulator running the same logic as the ESP32 + Camera firmware.</p>
+          </div>
+          <div class="hardware-specs-pills">
+            <span class="spec-pill"><i class="fa-solid fa-wifi"></i> ESP32 Wi-Fi</span>
+            <span class="spec-pill"><i class="fa-solid fa-camera"></i> ESP32-CAM</span>
+            <span class="spec-pill"><i class="fa-solid fa-tv"></i> SSD1306 OLED</span>
+            <span class="spec-pill"><i class="fa-solid fa-clock"></i> DS3231 RTC</span>
+          </div>
+        </div>
+
+        <div class="simulator-layout">
+          
+          <!-- PHYSICAL BOX VISUALIZER -->
+          <div class="box-physical-frame">
+            
+            <div class="box-chassis">
+              
+              <!-- Box Lid Status -->
+              <div class="box-lid-bar">
+                <div class="lid-indicator">
+                  <span class="indicator-dot" id="lidDot"></span>
+                  <span id="lidText">LID: CLOSED</span>
+                </div>
+                <button class="lid-toggle-btn" id="btnToggleLid" onclick="toggleBoxLid()">
+                  <i class="fa-solid fa-box-open"></i> <span id="lidBtnLabel">Open Box Lid</span>
+                </button>
+              </div>
+
+              <!-- Top Console: OLED Display & Buzzer -->
+              <div class="box-top-console">
+                <!-- 0.96" OLED Screen Simulation -->
+                <div class="oled-screen" id="simOledScreen">
+                  <div class="oled-header-line">
+                    <span id="oledClock">12:00:00</span>
+                    <span id="oledWifi"><i class="fa-solid fa-wifi"></i> OK</span>
+                  </div>
+                  <div class="oled-main-display" id="oledMain">
+                    <div class="oled-title">SMART REM BOX</div>
+                    <div class="oled-sub">STANDBY - ALL SAFE</div>
+                    <div class="oled-time">NEXT: 13:00</div>
+                  </div>
+                  <div class="oled-footer-line" id="oledFooter">
+                    [GRN] Taken  [RED] SOS
+                  </div>
+                </div>
+
+                <!-- Buzzer & LED Section -->
+                <div class="box-indicators">
+                  <div class="buzzer-module" id="simBuzzerModule">
+                    <div class="buzzer-speaker">
+                      <div class="sound-wave wave1"></div>
+                      <div class="sound-wave wave2"></div>
+                      <div class="sound-wave wave3"></div>
+                      <i class="fa-solid fa-volume-high"></i>
+                    </div>
+                    <span class="label">BUZZER</span>
+                  </div>
+
+                  <div class="status-leds">
+                    <div class="led-wrapper">
+                      <div class="led led-green" id="ledGreen"></div>
+                      <span>GREEN (OK)</span>
+                    </div>
+                    <div class="led-wrapper">
+                      <div class="led led-yellow" id="ledYellow"></div>
+                      <span>YELLOW (ALERT)</span>
+                    </div>
+                    <div class="led-wrapper">
+                      <div class="led led-red" id="ledRed"></div>
+                      <span>RED (WARN)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 4 Medicine Compartments with Camera View -->
+              <div class="compartments-container">
+                <div class="compartments-label">
+                  <span>MEDICINE COMPARTMENTS (ESP32-CAM MONITORED)</span>
+                </div>
+                
+                <div class="compartments-grid">
+                  
+                  <!-- Compartment 1 -->
+                  <div class="compartment-cell active-slot" id="compCell1" onclick="togglePillInCompartment(1)">
+                    <div class="comp-number">#1 MORNING</div>
+                    <div class="comp-interior">
+                      <div class="pill-graphic pill-blue" id="pillGraphic1">
+                        <i class="fa-solid fa-capsules"></i>
+                      </div>
+                    </div>
+                    <div class="comp-med-label">Metformin 500mg</div>
+                    <div class="comp-status-tag" id="compTag1">PILL PRESENT</div>
+                  </div>
+
+                  <!-- Compartment 2 -->
+                  <div class="compartment-cell" id="compCell2" onclick="togglePillInCompartment(2)">
+                    <div class="comp-number">#2 AFTERNOON</div>
+                    <div class="comp-interior">
+                      <div class="pill-graphic pill-green" id="pillGraphic2">
+                        <i class="fa-solid fa-tablets"></i>
+                      </div>
+                    </div>
+                    <div class="comp-med-label">Amlodipine 5mg</div>
+                    <div class="comp-status-tag" id="compTag2">PILL PRESENT</div>
+                  </div>
+
+                  <!-- Compartment 3 -->
+                  <div class="compartment-cell" id="compCell3" onclick="togglePillInCompartment(3)">
+                    <div class="comp-number">#3 NIGHT</div>
+                    <div class="comp-interior">
+                      <div class="pill-graphic pill-purple" id="pillGraphic3">
+                        <i class="fa-solid fa-pills"></i>
+                      </div>
+                    </div>
+                    <div class="comp-med-label">Atorvastatin 20mg</div>
+                    <div class="comp-status-tag" id="compTag3">PILL PRESENT</div>
+                  </div>
+
+                  <!-- Compartment 4 -->
+                  <div class="compartment-cell" id="compCell4" onclick="togglePillInCompartment(4)">
+                    <div class="comp-number">#4 WEEKLY</div>
+                    <div class="comp-interior">
+                      <div class="pill-graphic pill-yellow" id="pillGraphic4">
+                        <i class="fa-solid fa-capsules"></i>
+                      </div>
+                    </div>
+                    <div class="comp-med-label">Vitamin D3</div>
+                    <div class="comp-status-tag" id="compTag4">PILL PRESENT</div>
+                  </div>
+
+                </div>
+              </div>
+
+              <!-- Physical Push Buttons -->
+              <div class="box-buttons-row">
+                <button class="physical-btn btn-hardware-green" id="btnHardwareGreen" onclick="pressHardwareGreenButton()">
+                  <div class="push-button-cap green-cap"></div>
+                  <div class="hw-label">
+                    <strong>GREEN BUTTON</strong>
+                    <span>(Medicine Taken)</span>
+                  </div>
+                </button>
+
+                <button class="physical-btn btn-hardware-red" id="btnHardwareRed" onclick="pressHardwareRedButton()">
+                  <div class="push-button-cap red-cap"></div>
+                  <div class="hw-label">
+                    <strong>RED BUTTON</strong>
+                    <span>(Not Taken / SOS)</span>
+                  </div>
+                </button>
+              </div>
+
+            </div>
+
+          </div>
+
+          <!-- HARDWARE & AI CAMERA INSPECTION LOG -->
+          <div class="box-telemetry-panel">
+            
+            <!-- AI Camera Inspection Card -->
+            <div class="telemetry-card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-camera-retro"></i> ESP32-CAM Inspection View</h3>
+                <span class="live-pill"><i class="fa-solid fa-circle"></i> SENSOR LIVE</span>
+              </div>
+              <div class="camera-preview-box">
+                <div class="cam-overlay-reticle"></div>
+                <div class="cam-placeholder" id="camPreviewArea">
+                  <i class="fa-solid fa-video"></i>
+                  <span>Lid is closed. Open lid to trigger camera inspection snapshot.</span>
+                </div>
+                <div class="cv-status-banner" id="cvStatusBanner">
+                  <i class="fa-solid fa-circle-check"></i> <span>Ready for Compartment Verification</span>
+                </div>
+              </div>
+              <div class="camera-controls">
+                <button class="btn-cam-snap" onclick="triggerManualCameraVerification()">
+                  <i class="fa-solid fa-camera"></i> Capture & Verify Compartment Now
+                </button>
+              </div>
+            </div>
+
+            <!-- Live Serial Monitor / Hardware Events Log -->
+            <div class="telemetry-card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-terminal"></i> IoT Box Serial Monitor (Live)</h3>
+                <button class="clear-log-btn" onclick="clearSerialLog()">Clear</button>
+              </div>
+              <div class="serial-log-window" id="serialLogWindow">
+                <div class="log-line info">[BOOT] SMART REM ESP32 Firmware v2.1 Initialized.</div>
+                <div class="log-line info">[RTC] DS3231 Synchronized. Current Time loaded.</div>
+                <div class="log-line success">[WIFI] Connected to Local Network (192.168.1.105).</div>
+                <div class="log-line info">[CAM] OV2640 Camera Module Ready in UXGA mode.</div>
+                <div class="log-line info">[STANDBY] Awaiting scheduled trigger or lid interrupt.</div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!-- 3. CAREGIVER & FAMILY CONTROL HUB                             -->
+    <!-- ============================================================== -->
+    <section id="viewCaregiver" class="view-panel">
+      <div class="caregiver-container">
+        
+        <!-- Top Stats Row -->
+        <div class="stats-overview-grid">
+          
+          <div class="stat-card">
+            <div class="stat-icon icon-blue"><i class="fa-solid fa-user-shield"></i></div>
+            <div class="stat-info">
+              <span class="stat-label">Patient</span>
+              <h4 id="caregiverPatientName">Grandfather Robert</h4>
+              <span class="stat-detail">Age: 76 • Blood: O+</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon icon-green"><i class="fa-solid fa-chart-pie"></i></div>
+            <div class="stat-info">
+              <span class="stat-label">Adherence Rate</span>
+              <h4 id="statAdherenceRate">96%</h4>
+              <span class="stat-detail"><strong id="statTakenCount">12</strong> Taken / <strong id="statMissedCount">1</strong> Missed</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon icon-purple"><i class="fa-solid fa-clock-rotate-left"></i></div>
+            <div class="stat-info">
+              <span class="stat-label">Grace Period</span>
+              <h4 id="statGracePeriod">10 Mins</h4>
+              <span class="stat-detail">Before Auto Family SMS</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon icon-amber"><i class="fa-solid fa-comment-sms"></i></div>
+            <div class="stat-info">
+              <span class="stat-label">SMS Escalation</span>
+              <h4 id="statSmsStatus">Active</h4>
+              <span class="stat-detail">3 Family Contacts Enrolled</span>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="caregiver-main-layout">
+          
+          <!-- LEFT COLUMN: Schedules & Caregiver Contacts -->
+          <div class="caregiver-left-col">
+            
+            <!-- Medication Schedule Manager -->
+            <div class="panel-card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-pills"></i> Prescribed Medication Schedule</h3>
+                <button class="btn-add-primary" onclick="openAddMedicationModal()">
+                  <i class="fa-solid fa-plus"></i> Add Medicine
+                </button>
+              </div>
+              <div class="medications-table-wrapper">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Compartment</th>
+                      <th>Medicine & Dose</th>
+                      <th>Time & Meal</th>
+                      <th>Pill Stock</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="caregiverMedTableBody">
+                    <!-- Populated via JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Family & Caregiver Emergency Contacts -->
+            <div class="panel-card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-users"></i> Emergency Family Contacts (SMS Escalation)</h3>
+                <button class="btn-add-secondary" onclick="openAddCaregiverModal()">
+                  <i class="fa-solid fa-user-plus"></i> Add Contact
+                </button>
+              </div>
+              <div class="caregivers-list" id="caregiversListContainer">
+                <!-- Populated via JS -->
+              </div>
+            </div>
+
+          </div>
+
+          <!-- RIGHT COLUMN: SMS Live Inbox & Compliance History -->
+          <div class="caregiver-right-col">
+            
+            <!-- Live SMS Inbox / Alerts Card -->
+            <div class="panel-card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-satellite-dish"></i> Family SMS & Alert Dispatch Log</h3>
+                <button class="btn-test-sms" onclick="sendTestSmsAlert()">
+                  <i class="fa-solid fa-paper-plane"></i> Test SMS Alert
+                </button>
+              </div>
+              <div class="sms-log-box" id="smsLogContainer">
+                <!-- Populated via JS -->
+              </div>
+            </div>
+
+            <!-- Historical Intake Log -->
+            <div class="panel-card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-list-check"></i> Medication Intake History</h3>
+                <button class="btn-refresh" onclick="fetchLogs()"><i class="fa-solid fa-arrows-rotate"></i></button>
+              </div>
+              <div class="history-log-list" id="intakeHistoryContainer">
+                <!-- Populated via JS -->
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============================================================== -->
+  <!-- MODAL: ADD / EDIT MEDICATION                                    -->
+  <!-- ============================================================== -->
+  <div class="modal-overlay" id="modalMedication">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalMedTitle">Add New Medication</h3>
+        <button class="close-modal-btn" onclick="closeModal('modalMedication')">&times;</button>
+      </div>
+      <form id="formMedication" onsubmit="handleSaveMedication(event)">
+        <input type="hidden" id="medFormId" value="">
+        <div class="form-group">
+          <label>Medicine Name & Purpose</label>
+          <input type="text" id="medFormName" placeholder="e.g., Metformin (Diabetes)" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Dosage</label>
+            <input type="text" id="medFormDosage" placeholder="e.g., 500 mg - 1 Tablet" required>
+          </div>
+          <div class="form-group">
+            <label>Reminder Time (24-Hour)</label>
+            <input type="time" id="medFormTime" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Meal Relation</label>
+            <select id="medFormMeal">
+              <option value="After Food">After Food</option>
+              <option value="Before Food">Before Food</option>
+              <option value="With Food">With Food</option>
+              <option value="Empty Stomach">Empty Stomach</option>
+              <option value="Bedtime">Bedtime</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Box Compartment (1-4)</label>
+            <select id="medFormCompartment">
+              <option value="1">Compartment #1 (Morning)</option>
+              <option value="2">Compartment #2 (Afternoon)</option>
+              <option value="3">Compartment #3 (Night)</option>
+              <option value="4">Compartment #4 (Weekly/Special)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Pill Stock Count</label>
+            <input type="number" id="medFormCount" value="30" min="1" max="200">
+          </div>
+          <div class="form-group">
+            <label>Color Theme</label>
+            <input type="color" id="medFormColor" value="#3b82f6">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Instructions for Senior</label>
+          <input type="text" id="medFormInstructions" placeholder="e.g., Take with a full glass of warm water">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-cancel" onclick="closeModal('modalMedication')">Cancel</button>
+          <button type="submit" class="btn-submit">Save Medication</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- MODAL: ADD CAREGIVER                                            -->
+  <!-- ============================================================== -->
+  <div class="modal-overlay" id="modalCaregiver">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Add Family Caregiver Contact</h3>
+        <button class="close-modal-btn" onclick="closeModal('modalCaregiver')">&times;</button>
+      </div>
+      <form id="formCaregiver" onsubmit="handleSaveCaregiver(event)">
+        <div class="form-group">
+          <label>Caregiver Full Name</label>
+          <input type="text" id="cgFormName" placeholder="e.g., Sarah Jenkins" required>
+        </div>
+        <div class="form-group">
+          <label>Relationship</label>
+          <input type="text" id="cgFormRelation" placeholder="e.g., Daughter / Primary Contact" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Mobile Number (For SMS)</label>
+            <input type="tel" id="cgFormPhone" placeholder="+1 (555) 345-6789" required>
+          </div>
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" id="cgFormEmail" placeholder="sarah@example.com">
+          </div>
+        </div>
+        <div class="form-checkbox">
+          <input type="checkbox" id="cgFormSms" checked>
+          <label for="cgFormSms">Receive SMS alerts when medicine is missed or SOS is pressed</label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-cancel" onclick="closeModal('modalCaregiver')">Cancel</button>
+          <button type="submit" class="btn-submit">Save Contact</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- POPUP NOTIFICATION TOAST -->
+  <div id="toastNotification" class="toast-popup hidden">
+    <div class="toast-icon" id="toastIcon"><i class="fa-solid fa-bell"></i></div>
+    <div class="toast-content">
+      <h4 id="toastTitle">Notification</h4>
+      <p id="toastMessage">Message text</p>
+    </div>
+  </div>
+
+  <!-- SCRIPTS -->
+  <script src="js/audio.js"></script>
+  <script src="js/box-simulator.js"></script>
+  <script src="js/senior-view.js"></script>
+  <script src="js/caregiver-view.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
