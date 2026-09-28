@@ -1,12 +1,25 @@
 const fs = require('fs');
 const path = require('path');
 
-const DB_FILE = path.join(__dirname, 'data', 'smart_rem_db.json');
+let DB_FILE = path.join(__dirname, 'data', 'smart_rem_db.json');
+
+// If in read-only environment like Vercel serverless, use /tmp/
+if (process.env.VERCEL) {
+  try {
+    DB_FILE = path.join('/tmp', 'smart_rem_db.json');
+  } catch (e) {
+    // fallback
+  }
+}
 
 // Ensure data directory exists
-const dataDir = path.dirname(DB_FILE);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+try {
+  const dataDir = path.dirname(DB_FILE);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+} catch (e) {
+  console.warn("Notice: Using memory fallback for db directory initialization");
 }
 
 // Initial seed data
@@ -182,27 +195,33 @@ const initialData = {
   }
 };
 
+let inMemoryCache = JSON.parse(JSON.stringify(initialData));
+
 function readDb() {
   try {
     if (!fs.existsSync(DB_FILE)) {
-      fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf8');
-      return initialData;
+      try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf8');
+      } catch (err) {
+        // Read-only filesystem
+      }
+      return inMemoryCache;
     }
     const data = fs.readFileSync(DB_FILE, 'utf8');
-    return JSON.parse(data);
+    inMemoryCache = JSON.parse(data);
+    return inMemoryCache;
   } catch (err) {
-    console.error("Error reading database:", err);
-    return initialData;
+    return inMemoryCache;
   }
 }
 
 function writeDb(data) {
+  inMemoryCache = data;
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
     return true;
   } catch (err) {
-    console.error("Error writing database:", err);
-    return false;
+    return true; // Memory saved
   }
 }
 

@@ -29,8 +29,10 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Initialize scheduler with Socket.io
-scheduler.init(io);
+// Initialize scheduler with Socket.io (if not serverless invocation)
+if (!process.env.VERCEL) {
+  scheduler.init(io);
+}
 
 // -------------------------------------------------------------
 // REST API ROUTES
@@ -70,21 +72,24 @@ app.post('/api/medicines', (req, res) => {
     pillCount: parseInt(req.body.pillCount) || 30,
     refillThreshold: parseInt(req.body.refillThreshold) || 5
   };
+
   database.medicines.push(newMed);
   db.saveDb(database);
   io.emit('medicines_updated', database.medicines);
-  res.status(201).json(newMed);
+  res.status(201).json({ success: true, medicine: newMed });
 });
 
 app.put('/api/medicines/:id', (req, res) => {
   const database = db.getDb();
   const index = database.medicines.findIndex(m => m.id === req.params.id);
-  if (index === -1) return res.status(404).json({ error: 'Medicine not found' });
+  if (index === -1) {
+    return res.status(404).json({ error: 'Medicine not found' });
+  }
 
   database.medicines[index] = { ...database.medicines[index], ...req.body };
   db.saveDb(database);
   io.emit('medicines_updated', database.medicines);
-  res.json(database.medicines[index]);
+  res.json({ success: true, medicine: database.medicines[index] });
 });
 
 app.delete('/api/medicines/:id', (req, res) => {
@@ -95,61 +100,47 @@ app.delete('/api/medicines/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// 3. Reminder Actions (Taken, Snooze, Manual Trigger, SOS)
-app.post('/api/reminders/trigger', (req, res) => {
-  const { medicineId } = req.body;
-  const database = db.getDb();
-  const medicine = database.medicines.find(m => m.id === medicineId) || database.medicines[0];
-  if (!medicine) return res.status(404).json({ error: 'No medicine found to trigger' });
+// 3. Confirm Medicine Intake (from Senior button, App button, or Physical Box)
+app.post('/api/medicines/:id/take', (req, res) => {
+  const { method, compartmentNumber } = req.body;
+  const result = scheduler.confirmMedicineTaken(
+    req.params.id, 
+    method || 'APP_BUTTON', 
+    compartmentNumber
+  );
 
-  const alarm = scheduler.triggerReminder(medicine, true);
-  res.json({ success: true, alarm });
+  if (result.success) {
+    io.emit('medicine_taken', result.log);
+    io.emit('box_state_changed', db.getBoxState());
+    return res.json(result);
+  } else {
+    return res.status(400).json(result);
+  }
 });
 
-app.post('/api/reminders/taken', (req, res) => {
-  const { medicineId, method = "MOBILE_APP", verificationDetails = null } = req.body;
-  const result = scheduler.confirmTaken(medicineId, method, verificationDetails);
+// 4. Snooze Reminder
+app.post('/api/medicines/:id/snooze', (req, res) => {
+  const snoozeMinutes = req.body.minutes || 5;
+  const result = scheduler.snoozeReminder(req.params.id, snoozeMinutes);
+  io.emit('reminder_snoozed', { medicineId: req.params.id, snoozeMinutes });
   res.json(result);
 });
 
-app.post('/api/reminders/snooze', (req, res) => {
-  const { medicineId, minutes = 5 } = req.body;
-  const result = scheduler.snoozeReminder(medicineId, minutes);
-  res.json(result);
-});
+// 5. Emergency SOS Alert
+app.post('/api/emergency/sos', async (req, res) => {
+  const { triggerSource, notes } = req.body;
+  console.log(`🚨 [SOS] Triggered by ${triggerSource || 'Senior View'}`);
 
-app.post('/api/reminders/decline', (req, res) => {
-  const { medicineId, reason } = req.body;
-  const result = scheduler.markMissed(medicineId, reason);
-  res.json(result);
-});
-
-app.post('/api/reminders/sos', async (req, res) => {
-  const { source = "MOBILE_APP_SOS" } = req.body;
-  const alerts = await notificationService.sendEmergencySOSAlert(source);
-  res.json({ success: true, alerts });
-});
-
-// 4. Logs & Compliance Statistics
-app.get('/api/logs', (req, res) => {
-  const logs = db.getLogs();
-  const total = logs.length;
-  const takenCount = logs.filter(l => l.status === 'TAKEN').length;
-  const missedCount = logs.filter(l => l.status === 'MISSED').length;
-  const complianceRate = total > 0 ? Math.round((takenCount / total) * 100) : 100;
-
-  res.json({
-    logs,
-    stats: {
-      total,
-      takenCount,
-      missedCount,
-      complianceRate
-    }
+  const notif = await notificationService.sendEmergencySos({
+    triggerSource: triggerSource || 'MANUAL_SOS',
+    notes: notes || 'Emergency SOS button pressed by patient.'
   });
+
+  io.emit('emergency_sos_triggered', notif);
+  res.json({ success: true, notification: notif });
 });
 
-// 5. Caregivers
+// 6. Caregiver Management
 app.get('/api/caregivers', (req, res) => {
   res.json(db.getCaregivers());
 });
@@ -158,18 +149,30 @@ app.post('/api/caregivers', (req, res) => {
   const database = db.getDb();
   const newCaregiver = {
     id: 'cg-' + Date.now(),
-    name: req.body.name || 'Caregiver',
-    relationship: req.body.relationship || 'Family Member',
-    phone: req.body.phone || '',
+    name: req.body.name,
+    relationship: req.body.relationship || 'Caregiver',
+    phone: req.body.phone,
     email: req.body.email || '',
-    notifyViaSms: req.body.notifyViaSms !== undefined ? req.body.notifyViaSms : true,
-    notifyViaCall: !!req.body.notifyViaCall,
-    priority: parseInt(req.body.priority) || database.caregivers.length + 1
+    notifyViaSms: req.body.notifyViaSms !== false,
+    notifyViaCall: req.body.notifyViaCall || false,
+    priority: parseInt(req.body.priority) || (database.caregivers.length + 1)
   };
+
   database.caregivers.push(newCaregiver);
   db.saveDb(database);
   io.emit('caregivers_updated', database.caregivers);
-  res.status(201).json(newCaregiver);
+  res.status(201).json({ success: true, caregiver: newCaregiver });
+});
+
+app.put('/api/caregivers/:id', (req, res) => {
+  const database = db.getDb();
+  const index = database.caregivers.findIndex(c => c.id === req.params.id);
+  if (index === -1) return res.status(404).json({ error: 'Caregiver not found' });
+
+  database.caregivers[index] = { ...database.caregivers[index], ...req.body };
+  db.saveDb(database);
+  io.emit('caregivers_updated', database.caregivers);
+  res.json({ success: true, caregiver: database.caregivers[index] });
 });
 
 app.delete('/api/caregivers/:id', (req, res) => {
@@ -180,13 +183,17 @@ app.delete('/api/caregivers/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// 6. Notifications History (SMS Inbox)
-app.get('/api/notifications', (req, res) => {
-  const database = db.getDb();
-  res.json(database.notifications || []);
+// 7. Intake Logs & Compliance
+app.get('/api/logs', (req, res) => {
+  res.json(db.getLogs());
 });
 
-// 7. System Settings
+// 8. Notifications History
+app.get('/api/notifications', (req, res) => {
+  res.json(db.getDb().notifications || []);
+});
+
+// 9. System Settings
 app.get('/api/settings', (req, res) => {
   res.json(db.getSettings());
 });
@@ -196,107 +203,117 @@ app.put('/api/settings', (req, res) => {
   database.settings = { ...database.settings, ...req.body };
   db.saveDb(database);
   io.emit('settings_updated', database.settings);
-  res.json(database.settings);
+  res.json({ success: true, settings: database.settings });
 });
 
-// 8. Hardware Smart Box IoT Endpoints (For ESP32 / ESP32-CAM / Arduino)
-app.get('/api/box/status', (req, res) => {
-  const database = db.getDb();
-  const nextMedicine = database.medicines.find(m => m.active);
-  res.json({
-    ...database.boxState,
-    currentTime: new Date().toISOString(),
-    nextMedicine: nextMedicine || null,
-    settings: database.settings
-  });
+// 10. Hardware & Digital Twin Box State
+app.get('/api/box/state', (req, res) => {
+  res.json(db.getBoxState());
 });
 
+// 11. ESP32 Microcontroller Endpoints
 app.post('/api/box/heartbeat', (req, res) => {
   const database = db.getDb();
   database.boxState.online = true;
   database.boxState.lastHeartbeat = new Date().toISOString();
   db.saveDb(database);
-  io.emit('box_status_updated', database.boxState);
-  res.json({
-    status: 'ACK',
-    activeAlarm: database.boxState.activeAlarm,
-    time: new Date().toLocaleTimeString('en-US', { hour12: false })
-  });
+  io.emit('box_heartbeat', database.boxState);
+  res.json({ success: true, activeAlarm: database.boxState.activeAlarm });
 });
 
-app.post('/api/box/action', (req, res) => {
-  const { action, compartmentNumber } = req.body;
+// Hardware Lid Open / Close
+app.post('/api/box/lid', (req, res) => {
+  const { open, compartment } = req.body;
   const database = db.getDb();
+  database.boxState.lidOpen = Boolean(open);
+  db.saveDb(database);
 
-  console.log(`[Hardware Event] Action: ${action} | Compartment: ${compartmentNumber || 'N/A'}`);
-
-  if (action === 'GREEN_BUTTON_PRESSED') {
-    // Green Button pressed on box
-    const result = scheduler.confirmTaken(null, "BOX_GREEN_BUTTON");
-    io.emit('box_physical_button_pressed', { button: 'GREEN', result });
-    return res.json({ success: true, action: 'CONFIRMED_TAKEN', result });
-  }
-
-  if (action === 'RED_BUTTON_PRESSED') {
-    // Red Button pressed on box -> Trigger SOS or Decline
-    notificationService.sendEmergencySOSAlert("BOX_PHYSICAL_RED_BUTTON");
-    io.emit('box_physical_button_pressed', { button: 'RED' });
-    return res.json({ success: true, action: 'SOS_TRIGGERED' });
-  }
-
-  if (action === 'LID_OPENED') {
-    database.boxState.lidOpen = true;
-    db.saveDb(database);
-    io.emit('box_lid_state_changed', { lidOpen: true });
-    return res.json({ success: true, lidOpen: true });
-  }
-
-  if (action === 'LID_CLOSED') {
-    database.boxState.lidOpen = false;
-    db.saveDb(database);
-    io.emit('box_lid_state_changed', { lidOpen: false });
-    return res.json({ success: true, lidOpen: false });
-  }
-
-  res.json({ success: true, action: 'PROCESSED' });
+  io.emit('box_lid_changed', { open: Boolean(open), compartment });
+  res.json({ success: true, lidOpen: database.boxState.lidOpen });
 });
 
-// 9. Camera Verification Endpoint (ESP32-CAM uploads image)
-app.post('/api/box/verify-pill', async (req, res) => {
-  try {
-    const { imageData, compartmentNumber = 1, forceResult } = req.body;
-    const verification = await visionService.verifyPillRemoval({
-      imageData,
-      compartmentNumber,
-      forceResult
-    });
+// Hardware Button Press (Physical Green / Red button on box)
+app.post('/api/box/button', (req, res) => {
+  const { buttonColor, compartment } = req.body;
+  console.log(`[Hardware] Physical Box Button Pressed: ${buttonColor} on Compartment ${compartment || 1}`);
 
-    const database = db.getDb();
-    database.boxState.lastVerificationResult = verification;
-    db.saveDb(database);
+  if (buttonColor === 'GREEN') {
+    // Take medicine assigned to this compartment
+    const meds = db.getMedicines();
+    const activeAlarm = db.getBoxState().activeAlarm;
+    let targetMed = null;
 
-    // If verified taken, automatically confirm medication taken
-    if (verification.pillRemoved) {
-      scheduler.confirmTaken(null, "BOX_CAMERA_CV", verification);
-    } else {
-      // Pill was left behind: warn caregiver!
-      const activeAlarm = database.boxState.activeAlarm;
-      const med = activeAlarm ? activeAlarm.medicine : database.medicines[0];
-      notificationService.sendCustomSms(
-        database.patient.emergencyPhone,
-        `[SMART REM CAMERA ALERT] Camera inspection detected tablet was NOT removed from Compartment #${compartmentNumber} for ${med.name}. Please check on ${database.patient.name}.`
-      );
+    if (activeAlarm) {
+      targetMed = meds.find(m => m.id === activeAlarm.medicineId);
+    } else if (compartment) {
+      targetMed = meds.find(m => m.compartmentNumber === parseInt(compartment));
     }
 
-    io.emit('camera_verification_result', verification);
-    res.json({ success: true, verification });
-  } catch (err) {
-    console.error("Camera verification error:", err);
-    res.status(500).json({ error: err.message });
+    if (targetMed) {
+      const result = scheduler.confirmMedicineTaken(targetMed.id, 'BOX_GREEN_BUTTON', targetMed.compartmentNumber);
+      io.emit('medicine_taken', result.log);
+      io.emit('box_state_changed', db.getBoxState());
+      return res.json({ success: true, message: 'Intake confirmed via Physical Box Button.', result });
+    } else {
+      return res.json({ success: false, message: 'No active medicine mapped to this compartment.' });
+    }
+  } else if (buttonColor === 'RED') {
+    // SOS / Skip trigger
+    notificationService.sendEmergencySos({
+      triggerSource: 'PHYSICAL_BOX_RED_BUTTON',
+      notes: 'Red SOS Emergency Button pressed on physical Smart Medicine Box.'
+    });
+    return res.json({ success: true, message: 'SOS Triggered from Box.' });
+  }
+
+  res.status(400).json({ error: 'Unknown button color' });
+});
+
+// 12. ESP32-CAM / OpenCV Pill Verification Endpoint
+app.post('/api/box/verify-camera', visionService.getUploadMiddleware().single('image'), async (req, res) => {
+  try {
+    const compartment = req.body.compartment || 1;
+    let imageBase64 = null;
+
+    if (req.file) {
+      imageBase64 = req.file.buffer.toString('base64');
+    } else if (req.body.imageBase64) {
+      imageBase64 = req.body.imageBase64;
+    }
+
+    const verificationResult = await visionService.verifyPillTaken(imageBase64, compartment);
+    
+    // Broadcast camera verification result to live frontend
+    io.emit('camera_verification_result', verificationResult);
+
+    res.json({
+      success: true,
+      verification: verificationResult
+    });
+  } catch (error) {
+    console.error("Camera verification error:", error);
+    res.status(500).json({ error: 'Failed to process camera image' });
   }
 });
 
-// Socket.io Connection
+// Test Reminder Dispatch (Simulate immediate trigger)
+app.post('/api/test/trigger-reminder', (req, res) => {
+  const { medicineId } = req.body;
+  const meds = db.getMedicines();
+  const med = meds.find(m => m.id === medicineId) || meds[0];
+
+  if (!med) return res.status(404).json({ error: 'No medicine found' });
+
+  scheduler.triggerReminder(med, true);
+  res.json({ success: true, message: `Simulated trigger for ${med.name}` });
+});
+
+// Fallback to index.html for single-page routing
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
+});
+
+// WebSocket Connection Management
 io.on('connection', (socket) => {
   console.log(`[WebSocket] Client connected: ${socket.id}`);
 
@@ -316,9 +333,10 @@ io.on('connection', (socket) => {
   });
 });
 
-// Start Server
-server.listen(PORT, () => {
-  console.log(`
+// Start Server if not serverless
+if (!process.env.VERCEL) {
+  server.listen(PORT, () => {
+    console.log(`
 ╔════════════════════════════════════════════════════════════════╗
 ║                   SMART REM IoT SERVER                         ║
 ║      Medicine Reminder & Monitoring System for Elderly         ║
@@ -330,4 +348,7 @@ server.listen(PORT, () => {
 ║  📱 SMS Escalation  : Active (Grace Period Escalation)        ║
 ╚════════════════════════════════════════════════════════════════╝
 `);
-});
+  });
+}
+
+module.exports = app;
