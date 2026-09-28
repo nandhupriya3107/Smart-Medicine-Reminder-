@@ -353,9 +353,12 @@
                   <i class="fa-solid fa-circle-check"></i> <span>Ready for Compartment Verification</span>
                 </div>
               </div>
-              <div class="camera-controls">
-                <button class="btn-cam-snap" onclick="triggerManualCameraVerification()">
-                  <i class="fa-solid fa-camera"></i> Capture & Verify Compartment Now
+              <div class="camera-controls" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn-cam-snap" onclick="triggerManualCameraVerification()" style="flex: 1;">
+                  <i class="fa-solid fa-camera"></i> Capture & Verify
+                </button>
+                <button class="btn-cam-snap" onclick="toggleLiveWebcam()" style="flex: 1; background: #0284c7;">
+                  <i class="fa-solid fa-video"></i> Live Laptop Webcam
                 </button>
               </div>
             </div>
