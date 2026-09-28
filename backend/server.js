@@ -3,6 +3,7 @@ const http = require('http');
 const path = require('path');
 const cors = require('cors');
 const { Server } = require('socket.io');
+const multer = require('multer');
 
 const db = require('./database');
 const scheduler = require('./services/schedulerService');
@@ -18,6 +19,7 @@ const io = new Server(server, {
   }
 });
 
+const upload = multer({ storage: multer.memoryStorage() });
 const PORT = process.env.PORT || 3000;
 
 // Middleware
@@ -26,10 +28,11 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Serve frontend static files
+app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Initialize scheduler with Socket.io (if not serverless invocation)
+// Initialize scheduler with Socket.io (if not serverless)
 if (!process.env.VERCEL) {
   scheduler.init(io);
 }
@@ -100,17 +103,12 @@ app.delete('/api/medicines/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// 3. Confirm Medicine Intake (from Senior button, App button, or Physical Box)
+// 3. Confirm Medicine Intake
 app.post('/api/medicines/:id/take', (req, res) => {
-  const { method, compartmentNumber } = req.body;
-  const result = scheduler.confirmMedicineTaken(
-    req.params.id, 
-    method || 'APP_BUTTON', 
-    compartmentNumber
-  );
+  const { method } = req.body;
+  const result = scheduler.confirmTaken(req.params.id, method || 'MOBILE_APP');
 
   if (result.success) {
-    io.emit('medicine_taken', result.log);
     io.emit('box_state_changed', db.getBoxState());
     return res.json(result);
   } else {
@@ -128,16 +126,11 @@ app.post('/api/medicines/:id/snooze', (req, res) => {
 
 // 5. Emergency SOS Alert
 app.post('/api/emergency/sos', async (req, res) => {
-  const { triggerSource, notes } = req.body;
+  const { triggerSource } = req.body;
   console.log(`🚨 [SOS] Triggered by ${triggerSource || 'Senior View'}`);
 
-  const notif = await notificationService.sendEmergencySos({
-    triggerSource: triggerSource || 'MANUAL_SOS',
-    notes: notes || 'Emergency SOS button pressed by patient.'
-  });
-
-  io.emit('emergency_sos_triggered', notif);
-  res.json({ success: true, notification: notif });
+  const results = await notificationService.sendEmergencySOSAlert(triggerSource || 'MOBILE_SOS_BUTTON');
+  res.json({ success: true, alerts: results });
 });
 
 // 6. Caregiver Management
@@ -238,7 +231,6 @@ app.post('/api/box/button', (req, res) => {
   console.log(`[Hardware] Physical Box Button Pressed: ${buttonColor} on Compartment ${compartment || 1}`);
 
   if (buttonColor === 'GREEN') {
-    // Take medicine assigned to this compartment
     const meds = db.getMedicines();
     const activeAlarm = db.getBoxState().activeAlarm;
     let targetMed = null;
@@ -250,19 +242,14 @@ app.post('/api/box/button', (req, res) => {
     }
 
     if (targetMed) {
-      const result = scheduler.confirmMedicineTaken(targetMed.id, 'BOX_GREEN_BUTTON', targetMed.compartmentNumber);
-      io.emit('medicine_taken', result.log);
+      const result = scheduler.confirmTaken(targetMed.id, 'BOX_GREEN_BUTTON');
       io.emit('box_state_changed', db.getBoxState());
       return res.json({ success: true, message: 'Intake confirmed via Physical Box Button.', result });
     } else {
       return res.json({ success: false, message: 'No active medicine mapped to this compartment.' });
     }
   } else if (buttonColor === 'RED') {
-    // SOS / Skip trigger
-    notificationService.sendEmergencySos({
-      triggerSource: 'PHYSICAL_BOX_RED_BUTTON',
-      notes: 'Red SOS Emergency Button pressed on physical Smart Medicine Box.'
-    });
+    notificationService.sendEmergencySOSAlert('PHYSICAL_BOX_RED_BUTTON');
     return res.json({ success: true, message: 'SOS Triggered from Box.' });
   }
 
@@ -270,20 +257,24 @@ app.post('/api/box/button', (req, res) => {
 });
 
 // 12. ESP32-CAM / OpenCV Pill Verification Endpoint
-app.post('/api/box/verify-camera', visionService.getUploadMiddleware().single('image'), async (req, res) => {
+app.post('/api/box/verify-camera', upload.single('image'), async (req, res) => {
   try {
-    const compartment = req.body.compartment || 1;
-    let imageBase64 = null;
+    const compartment = parseInt(req.body.compartment) || 1;
+    let imageData = null;
 
     if (req.file) {
-      imageBase64 = req.file.buffer.toString('base64');
+      imageData = `data:image/jpeg;base64,${req.file.buffer.toString('base64')}`;
     } else if (req.body.imageBase64) {
-      imageBase64 = req.body.imageBase64;
+      imageData = req.body.imageBase64;
+    } else if (req.body.imageData) {
+      imageData = req.body.imageData;
     }
 
-    const verificationResult = await visionService.verifyPillTaken(imageBase64, compartment);
+    const verificationResult = await visionService.verifyPillRemoval({
+      imageData,
+      compartmentNumber: compartment
+    });
     
-    // Broadcast camera verification result to live frontend
     io.emit('camera_verification_result', verificationResult);
 
     res.json({
@@ -310,7 +301,7 @@ app.post('/api/test/trigger-reminder', (req, res) => {
 
 // Fallback to index.html for single-page routing
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 // WebSocket Connection Management
