@@ -136,3 +136,7 @@ Then open your browser at **https://smart-medicine-reminder-pi.vercel.app/**.
 
 ## 💡 License & Attribution
 Developed with ❤️ for Geriatric Healthcare and Senior Patient Safety. Open source under the MIT License.
+
+Webpage:
+<img width="1902" height="987" alt="image" src="https://github.com/user-attachments/assets/0cf5c44c-0583-4810-81c8-51894c75fac0" />
+
