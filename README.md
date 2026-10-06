@@ -95,7 +95,7 @@ cd backend
 npm install
 npm start
 ```
-Then open your browser at **[http://localhost:3000](http://localhost:3000)**.
+Then open your browser at **https://smart-medicine-reminder-pi.vercel.app/**.
 
 ### 2. Testing the Workflow Instantly
 1. Navigate to **Senior View** or **Smart Box Simulator**.
